@@ -22,6 +22,8 @@ const int FARM_W = 7;
 const int FARM_H = 6;
 
 enum CropStage { UNTILLED, TILLED, SEED, SPROUT, RIPE };
+enum TutorialStep { TUTORIAL_MOVE_TO_FIELD, TUTORIAL_TILL_SOIL, TUTORIAL_PLANT_SEED, TUTORIAL_GROW_CROP, TUTORIAL_HARVEST_CROP, TUTORIAL_COMPLETE };
+
 CropStage g_Farm[FARM_H][FARM_W] = {};
 bool g_Keys[256] = {};
 int g_PlayerX = 7;
@@ -30,6 +32,9 @@ int g_Gold = 20;
 int g_Seeds = 5;
 int g_Day = 1;
 int g_LastMove = 0;
+int g_TutorialFarmX = -1;
+int g_TutorialFarmY = -1;
+TutorialStep g_TutorialStep = TUTORIAL_MOVE_TO_FIELD;
 std::string g_Message = "Welcome to Tiny Harvest! Space: farm  N: next day";
 
 float PixelX(int tileX) { return (tileX - MAP_W / 2.0f + 0.5f) * TILE; }
@@ -56,6 +61,24 @@ bool IsFarm(int x, int y)
 }
 
 void SetMessage(const std::string& message) { g_Message = message; }
+
+std::string GetTutorialText()
+{
+	switch (g_TutorialStep) {
+	case TUTORIAL_MOVE_TO_FIELD:
+		return "Tutorial 1/5: Walk to the brown field.";
+	case TUTORIAL_TILL_SOIL:
+		return "Tutorial 2/5: Press Space to till one field tile.";
+	case TUTORIAL_PLANT_SEED:
+		return "Tutorial 3/5: Press Space again on the tilled tile to plant.";
+	case TUTORIAL_GROW_CROP:
+		return "Tutorial 4/5: Press N twice to let your turnip grow.";
+	case TUTORIAL_HARVEST_CROP:
+		return "Tutorial 5/5: Press Space on the ripe turnip to harvest it.";
+	default:
+		return "Tutorial complete! Your farm is ready. Grow crops and earn gold.";
+	}
+}
 
 void RenderCrop(int x, int y, CropStage stage)
 {
@@ -115,6 +138,7 @@ void RenderScene(void)
 
 	Text(-385, 370, "TINY HARVEST  |  Day " + std::to_string(g_Day), 1.0f, 0.91f, 0.44f);
 	Text(-385, 345, "Gold: " + std::to_string(g_Gold) + "   Seeds: " + std::to_string(g_Seeds), 0.93f, 0.96f, 1.0f);
+	Text(-385, -325, GetTutorialText(), 1.0f, 0.86f, 0.36f);
 	Text(-385, -350, g_Message, 0.95f, 0.95f, 0.95f);
 	Text(-385, -375, "Move: WASD / arrows   Space: till, plant, harvest   B: buy seed (5g)   N: next day", 0.72f, 0.83f, 0.92f);
 
@@ -127,12 +151,33 @@ void TryFarm()
 	int fx = g_PlayerX - FARM_LEFT;
 	int fy = g_PlayerY - FARM_TOP;
 	CropStage& crop = g_Farm[fy][fx];
-	if (crop == UNTILLED) { crop = TILLED; SetMessage("Soil tilled. Press Space again to plant a seed."); }
+	if (crop == UNTILLED) {
+		crop = TILLED;
+		if (g_TutorialStep == TUTORIAL_TILL_SOIL) {
+			g_TutorialFarmX = fx;
+			g_TutorialFarmY = fy;
+			g_TutorialStep = TUTORIAL_PLANT_SEED;
+		}
+		SetMessage("Soil tilled. Press Space again to plant a seed.");
+	}
 	else if (crop == TILLED) {
 		if (g_Seeds <= 0) SetMessage("No seeds. Press B to buy one for 5 gold.");
-		else { --g_Seeds; crop = SEED; SetMessage("Seed planted. Sleep through a few days with N."); }
+		else {
+			--g_Seeds;
+			crop = SEED;
+			if (g_TutorialStep == TUTORIAL_PLANT_SEED && fx == g_TutorialFarmX && fy == g_TutorialFarmY)
+				g_TutorialStep = TUTORIAL_GROW_CROP;
+			SetMessage("Seed planted. Sleep through a few days with N.");
+		}
 	}
-	else if (crop == RIPE) { crop = UNTILLED; ++g_Seeds; g_Gold += 15; SetMessage("Harvested turnip! +15 gold and +1 seed."); }
+	else if (crop == RIPE) {
+		crop = UNTILLED;
+		++g_Seeds;
+		g_Gold += 15;
+		if (g_TutorialStep == TUTORIAL_HARVEST_CROP && fx == g_TutorialFarmX && fy == g_TutorialFarmY)
+			g_TutorialStep = TUTORIAL_COMPLETE;
+		SetMessage("Harvested turnip! +15 gold and +1 seed.");
+	}
 	else SetMessage("This crop needs another day or two.");
 }
 
@@ -143,6 +188,8 @@ void NextDay()
 		for (int x = 0; x < FARM_W; ++x)
 			if (g_Farm[y][x] == SEED || g_Farm[y][x] == SPROUT)
 				g_Farm[y][x] = static_cast<CropStage>(g_Farm[y][x] + 1);
+	if (g_TutorialStep == TUTORIAL_GROW_CROP && g_Farm[g_TutorialFarmY][g_TutorialFarmX] == RIPE)
+		g_TutorialStep = TUTORIAL_HARVEST_CROP;
 	SetMessage("A new morning begins. Your crops have grown!");
 }
 
@@ -150,7 +197,14 @@ void MovePlayer(int dx, int dy)
 {
 	int nx = g_PlayerX + dx;
 	int ny = g_PlayerY + dy;
-	if (nx >= 0 && nx < MAP_W && ny >= 0 && ny < MAP_H && nx < 14) { g_PlayerX = nx; g_PlayerY = ny; }
+	if (nx >= 0 && nx < MAP_W && ny >= 0 && ny < MAP_H && nx < 14) {
+		g_PlayerX = nx;
+		g_PlayerY = ny;
+		if (g_TutorialStep == TUTORIAL_MOVE_TO_FIELD && IsFarm(g_PlayerX, g_PlayerY)) {
+			g_TutorialStep = TUTORIAL_TILL_SOIL;
+			SetMessage("You found the field. Let's prepare some soil.");
+		}
+	}
 }
 
 void Update()
